@@ -12,6 +12,16 @@ type Repository interface {
 	Gate(ctx context.Context, id string) (domain.Gate, error)
 	CreateCommand(ctx context.Context, command domain.GateCommand) error
 	Command(ctx context.Context, id string) (domain.GateCommand, error)
+	ReviewQueue(ctx context.Context, gateID string) (domain.ReviewQueue, error)
+	EnqueueCommand(ctx context.Context, commandID string) (domain.ReviewQueue, error)
+	ReprioritizeCommand(
+		ctx context.Context,
+		commandID string,
+		priority int,
+		basis string,
+		changedBy string,
+		now time.Time,
+	) (domain.ReviewQueue, error)
 	ReviewCommand(
 		ctx context.Context,
 		commandID string,

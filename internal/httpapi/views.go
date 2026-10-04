@@ -53,3 +53,39 @@ func commandView(command domain.GateCommand, includeToken bool) contracts.Comman
 	}
 	return view
 }
+
+func reviewQueueView(queue domain.ReviewQueue) contracts.ReviewQueueView {
+	entries := queue.Entries()
+	view := contracts.ReviewQueueView{
+		GateID:    queue.GateID,
+		Entries:   make([]contracts.ReviewQueueEntryView, 0, len(entries)),
+		Length:    len(entries),
+		UpdatedAt: formatTime(queue.UpdatedAt),
+		Version:   queue.Version,
+	}
+	for position, entry := range entries {
+		history := make([]contracts.PriorityChangeView, 0, len(entry.History))
+		for _, change := range entry.History {
+			history = append(history, contracts.PriorityChangeView{
+				Priority:  change.Priority,
+				Basis:     change.Basis,
+				ChangedBy: change.ChangedBy,
+				ChangedAt: formatTime(change.ChangedAt),
+			})
+		}
+		item := contracts.ReviewQueueEntryView{
+			CommandID:  entry.CommandID,
+			Position:   position + 1,
+			Priority:   entry.Priority,
+			Basis:      entry.Basis(),
+			ChangedBy:  entry.ChangedBy(),
+			EnqueuedAt: formatTime(entry.EnqueuedAt),
+			History:    history,
+		}
+		view.Entries = append(view.Entries, item)
+	}
+	if head, ok := queue.Head(); ok {
+		view.HeadID = head.CommandID
+	}
+	return view
+}

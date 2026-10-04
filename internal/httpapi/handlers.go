@@ -109,3 +109,54 @@ func (h *handler) executeCommand(w http.ResponseWriter, r *http.Request) {
 		},
 	)
 }
+
+func (h *handler) reviewQueue(w http.ResponseWriter, r *http.Request) {
+	queue, err := h.service.ReviewQueue(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeDomainError(w, err)
+		return
+	}
+	writeJSON(
+		w,
+		http.StatusOK,
+		contracts.ReviewQueueResponse{Queue: reviewQueueView(queue)},
+	)
+}
+
+func (h *handler) enqueueCommand(w http.ResponseWriter, r *http.Request) {
+	// The endpoint takes no body; an empty payload is a valid request.
+	if err := decodeOptionalJSON(r); err != nil {
+		writeDomainError(w, err)
+		return
+	}
+
+	queue, err := h.service.EnqueueCommand(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeDomainError(w, err)
+		return
+	}
+	writeJSON(
+		w,
+		http.StatusOK,
+		contracts.ReviewQueueResponse{Queue: reviewQueueView(queue)},
+	)
+}
+
+func (h *handler) reprioritizeCommand(w http.ResponseWriter, r *http.Request) {
+	var request contracts.ReprioritizeCommandRequest
+	if err := decodeJSON(w, r, &request); err != nil {
+		writeDomainError(w, err)
+		return
+	}
+
+	queue, err := h.service.ReprioritizeCommand(r.Context(), r.PathValue("id"), request)
+	if err != nil {
+		writeDomainError(w, err)
+		return
+	}
+	writeJSON(
+		w,
+		http.StatusOK,
+		contracts.ReviewQueueResponse{Queue: reviewQueueView(queue)},
+	)
+}

@@ -124,6 +124,28 @@
         "storage",
         "contracts"
       ]
+    },
+    {
+      "id": "review-queue",
+      "name": "Per-gate review queue and priority adjustment",
+      "entry": "GET /gates/{id}/review-queue",
+      "steps": [
+        "auto-enqueue every new pending command at its gate's queue tail",
+        "order entries by priority then FIFO sequence and expose the current head",
+        "gate reviews on the real current head, dequeue it on commit, and recompute the next head from commands still genuinely pending",
+        "append-only priority adjustments with a recorded basis and duplicate-enqueue rejection"
+      ],
+      "success": "returns queue order, priority basis history and the current head; only the head can enter review and the next item advances after head completion",
+      "failure": "non-head, concurrent, duplicate-enqueue, post-state-change, and invalid-priority attempts return stable conflicts or validation errors without rewriting facts",
+      "verification": "workflowcheck reads the queue, reprioritizes commands, proves non-head and duplicate-enqueue conflicts, works through two heads, and verifies advancement and immutable history; unit tests add a concurrent single-winner check",
+      "module_ids": [
+        "entrypoint",
+        "httpapi",
+        "coordination",
+        "domain",
+        "storage",
+        "contracts"
+      ]
     }
   ],
   "complexity": {

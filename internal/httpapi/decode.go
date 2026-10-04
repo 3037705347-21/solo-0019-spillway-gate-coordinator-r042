@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -23,6 +24,23 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, target any) error {
 	var extra any
 	if err := decoder.Decode(&extra); err != io.EOF {
 		return domain.Invalid("invalid_json", "request body must contain only one JSON object")
+	}
+	return nil
+}
+
+// decodeOptionalJSON accepts an empty body or a single empty JSON object.
+func decodeOptionalJSON(r *http.Request) error {
+	limited := http.MaxBytesReader(nil, r.Body, maxRequestBodyBytes)
+	raw, err := io.ReadAll(limited)
+	if err != nil {
+		return domain.Invalid("invalid_json", "request body could not be read")
+	}
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 {
+		return nil
+	}
+	if !bytes.Equal(trimmed, []byte("{}")) {
+		return domain.Invalid("invalid_json", "request body must be empty or an empty JSON object")
 	}
 	return nil
 }

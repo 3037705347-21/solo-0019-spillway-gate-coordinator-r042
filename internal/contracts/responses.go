@@ -61,3 +61,33 @@ type ExecuteCommandResponse struct {
 	Command CommandView `json:"command"`
 	Gate    GateView    `json:"gate"`
 }
+
+type PriorityChangeView struct {
+	Priority  int    `json:"priority"`
+	Basis     string `json:"basis"`
+	ChangedBy string `json:"changed_by"`
+	ChangedAt string `json:"changed_at"`
+}
+
+type ReviewQueueEntryView struct {
+	CommandID  string               `json:"command_id"`
+	Position   int                  `json:"position"`
+	Priority   int                  `json:"priority"`
+	Basis      string               `json:"basis"`
+	ChangedBy  string               `json:"changed_by"`
+	EnqueuedAt string               `json:"enqueued_at"`
+	History    []PriorityChangeView `json:"history"`
+}
+
+type ReviewQueueView struct {
+	GateID    string                 `json:"gate_id"`
+	HeadID    string                 `json:"head_id,omitempty"`
+	Entries   []ReviewQueueEntryView `json:"entries"`
+	Length    int                    `json:"length"`
+	UpdatedAt string                 `json:"updated_at"`
+	Version   int64                  `json:"version"`
+}
+
+type ReviewQueueResponse struct {
+	Queue ReviewQueueView `json:"queue"`
+}

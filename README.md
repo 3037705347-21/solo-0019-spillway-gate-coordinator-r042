@@ -16,11 +16,34 @@ go run ./cmd/server --addr 127.0.0.1:18119
 ```text
 POST /gates
 GET  /gates/{id}
+GET  /gates/{id}/review-queue
 POST /commands
 GET  /commands/{id}
+POST /commands/{id}/enqueue
+POST /commands/{id}/priority
 POST /commands/{id}/interlock
 POST /commands/{id}/execute
 ```
+
+待复核队列在命令创建时自动形成：同一闸门的多条 pending 命令按提交顺序排队，只有当前队首可以进入复核；队首复核完成（通过或拒绝）后出队，下一项按当时仍真实 pending 的条目成为队首。
+
+读取队列返回顺序、当前队首以及每条命令的优先级与依据历史：
+
+```sh
+curl http://127.0.0.1:18119/gates/gate-east/review-queue
+```
+
+调整优先级时必须给出数值（高数值优先，范围 -1000 到 1000）、依据和操作人；调整只追加事实，不覆盖既有历史：
+
+```json
+{
+  "priority": 10,
+  "basis": "上游来水急涨，优先预泄",
+  "changed_by": "dispatcher-lin"
+}
+```
+
+对已经在队中的命令重复排队、对已离开 pending 的命令调整优先级或排队，都会返回稳定冲突错误且不改变任何既有事实。
 
 登记闸门示例：
 
@@ -82,10 +105,15 @@ go run ./cmd/workflowcheck --workflow register-gate
 go run ./cmd/workflowcheck --workflow request-gate-command
 go run ./cmd/workflowcheck --workflow review-safety-interlock
 go run ./cmd/workflowcheck --workflow execute-gate-command
+go run ./cmd/workflowcheck --workflow review-queue
 ```
 
 这些检查会创建临时 HTTP 服务并调用真实路由。它们不调用外部网络，也不依赖数据库。
 
 ## 测试状态
 
-测试有意延后。当前交付仅包含初始化基线和生产级 smoke 检查；后续任务阶段会添加自动化测试与红绿验证，不应把当前没有测试文件视为项目未完成。
+队列能力附带 `internal/domain` 与 `internal/storage` 的单元测试，覆盖 FIFO/优先级排序、依据历史只追加、重复排队、队首门禁、队首完成后按真实条件前进，以及并发复核只有单一赢家且非队首事实不变。运行：
+
+```sh
+go test ./...
+```

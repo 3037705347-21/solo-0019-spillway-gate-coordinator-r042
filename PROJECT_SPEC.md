@@ -24,11 +24,19 @@
 
 ### request-gate-command
 
-运行协调员通过 `POST /commands` 提交开度调整命令。服务读取闸门当前开度和限制，校验目标开度与申请信息，创建待复核命令并冻结起始开度。
+运行协调员通过 `POST /commands` 提交开度调整命令。服务读取闸门当前开度和限制，校验目标开度与申请信息，创建待复核命令并冻结起始开度。命令在同一事务内进入该闸门的待复核队列尾部，默认优先级 0，依据为初始排队的 FIFO 顺序。
 
 ### review-safety-interlock
 
-安全复核员通过 `POST /commands/{id}/interlock` 提交复核结论。clear 结论会原子占用闸门并签发一次执行令牌；blocked 结论会把命令置为 rejected。其他命令先占用同一闸门时，当前 clear 结论返回冲突且不改变闸门。
+安全复核员通过 `POST /commands/{id}/interlock` 提交复核结论。服务先按存储中的真实状态确认该命令仍是 pending 且是同闸门待复核队列的当前队首；非队首、已离开队列或已进入其他状态的命令一律冲突拒绝且不写入。clear 结论会原子占用闸门并签发一次执行令牌；blocked 结论会把命令置为 rejected。复核提交成功时队首同步出队，下一项按当时仍真实处于 pending 的条目重新计算为队首。其他命令先占用同一闸门时，当前 clear 结论返回冲突且不改变闸门。
+
+### gate-review-queue
+
+运行协调员通过 `GET /gates/{id}/review-queue` 读取同闸门待复核队列：有效顺序（高优先级在前，同优先级按入队序号 FIFO）、每条命令的当前优先级、优先级依据、完整调整历史、位置以及当前队首。
+
+通过 `POST /commands/{id}/priority` 调整一条待复核命令的优先级，必须提供新优先级（-1000 到 1000）、依据和操作人；调整只向该条目的历史追加一条事实，从不改写已有记录。相同优先级与相同依据的重复提交是无操作。命令离开 pending 或已离开队列后不能再调整。
+
+通过 `POST /commands/{id}/enqueue` 可对仍为 pending 但不在队列中的命令显式排队；对已经在队中的命令重复排队返回稳定冲突，位置、优先级和历史均不改变。
 
 ### execute-gate-command
 
@@ -38,7 +46,11 @@
 
 - `gate` 状态：idle、reserved、moving、faulted。
 - `gate_command` 状态：pending、approved、rejected、executing、completed、aborted。
-- 只有 pending 命令可以复核。
+- 每个闸门持有一个 `review_queue`，条目仅包含仍待复核的命令；队首为优先级最高者，同优先级按入队序号（提交 FIFO）。
+- 只有 pending 命令可以复核，并且必须是所属闸门队列的当前队首。
+- 队首复核提交后原子出队；下一队首按存储中仍真实为 pending 的条目重算，而不是按假设顺序。
+- 优先级调整只追加依据历史（优先级、依据、操作人、时间），不覆盖既有事实；相同优先级加相同依据不产生新事实。
+- 重复排队、对已离开 pending 或已离开队列的命令调整优先级或排队，均返回稳定冲突且不写入。
 - 只有 approved 命令可以执行，且执行令牌必须匹配。
 - clear 复核与闸门占用必须同时成功；任一步失败时两者都不写入。
 - blocked 复核使命令 rejected，不会占用闸门。
@@ -60,8 +72,11 @@
 - `GET /health`
 - `POST /gates`
 - `GET /gates/{id}`
+- `GET /gates/{id}/review-queue`
 - `POST /commands`
 - `GET /commands/{id}`
+- `POST /commands/{id}/enqueue`
+- `POST /commands/{id}/priority`
 - `POST /commands/{id}/interlock`
 - `POST /commands/{id}/execute`
 
@@ -73,4 +88,4 @@
 
 ## 验证计划
 
-本初始化基线刻意不生成单元测试、夹具或浏览器测试文件，也不声明 `test_command`。后续任务阶段负责补充测试，并在该阶段建立红绿验证。当前每条工作流通过 `cmd/workflowcheck` 启动真实 HTTP 服务并调用公开接口，校验成功状态、持久化结果和关键失败分支。
+每条工作流通过 `cmd/workflowcheck` 启动真实 HTTP 服务并调用公开接口，校验成功状态、持久化结果和关键失败分支。`review-queue` 工作流验证队列顺序、优先级依据历史、当前队首、非队首复核冲突、重复排队冲突、相同调整无操作、队首完成后按真实条件前进，以及对已进入其他状态的命令不能改写事实。`internal/domain` 与 `internal/storage` 另含单元测试，包括高并发复核下只有一个赢家、非队首命令状态不变的并发验证。

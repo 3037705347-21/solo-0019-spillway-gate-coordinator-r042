@@ -25,3 +25,9 @@ type ExecuteCommandRequest struct {
 	Token         string `json:"token"`
 	SimulateFault bool   `json:"simulate_fault"`
 }
+
+type ReprioritizeCommandRequest struct {
+	Priority  int    `json:"priority"`
+	Basis     string `json:"basis"`
+	ChangedBy string `json:"changed_by"`
+}

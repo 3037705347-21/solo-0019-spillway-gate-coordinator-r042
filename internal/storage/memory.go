@@ -12,12 +12,14 @@ type MemoryRepository struct {
 	mu       sync.RWMutex
 	gates    map[string]domain.Gate
 	commands map[string]domain.GateCommand
+	queues   map[string]domain.ReviewQueue
 }
 
 func NewMemoryRepository() *MemoryRepository {
 	return &MemoryRepository{
 		gates:    make(map[string]domain.Gate),
 		commands: make(map[string]domain.GateCommand),
+		queues:   make(map[string]domain.ReviewQueue),
 	}
 }
 
@@ -29,6 +31,7 @@ func (m *MemoryRepository) CreateGate(_ context.Context, gate domain.Gate) error
 		return domain.Conflict("duplicate_gate_id", "gate id already exists")
 	}
 	m.gates[gate.ID] = gate
+	m.queues[gate.ID] = domain.NewReviewQueue(gate.ID, gate.UpdatedAt)
 	return nil
 }
 
@@ -64,7 +67,23 @@ func (m *MemoryRepository) CreateCommand(_ context.Context, command domain.GateC
 		return domain.Conflict("duplicate_command_id", "command id already exists")
 	}
 
+	queue, exists := m.queues[command.GateID]
+	if !exists {
+		// Defensive: queues are created together with gates.
+		queue = domain.NewReviewQueue(command.GateID, command.CreatedAt)
+	}
+	if _, err := queue.Enqueue(
+		command.ID,
+		domain.DefaultPriority,
+		domain.InitialQueueBasis,
+		command.RequestedBy,
+		command.CreatedAt,
+	); err != nil {
+		return err
+	}
+
 	m.commands[command.ID] = command
+	m.queues[command.GateID] = queue
 	return nil
 }
 
@@ -77,6 +96,81 @@ func (m *MemoryRepository) Command(_ context.Context, id string) (domain.GateCom
 		return domain.GateCommand{}, domain.NotFound("command_not_found", "command id was not found")
 	}
 	return cloneCommand(command), nil
+}
+
+func (m *MemoryRepository) ReviewQueue(_ context.Context, gateID string) (domain.ReviewQueue, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	queue, exists := m.queues[gateID]
+	if !exists {
+		if _, gateExists := m.gates[gateID]; !gateExists {
+			return domain.ReviewQueue{}, domain.NotFound("gate_not_found", "gate id was not found")
+		}
+		return domain.ReviewQueue{}, domain.Internal("review_queue_missing", "review queue is unavailable")
+	}
+	return queue, nil
+}
+
+func (m *MemoryRepository) EnqueueCommand(_ context.Context, commandID string) (domain.ReviewQueue, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	command, exists := m.commands[commandID]
+	if !exists {
+		return domain.ReviewQueue{}, domain.NotFound("command_not_found", "command id was not found")
+	}
+	queue, exists := m.queues[command.GateID]
+	if !exists {
+		return domain.ReviewQueue{}, domain.NotFound("gate_not_found", "gate id was not found")
+	}
+	// Only commands still waiting for review can be queued. A command that
+	// has already entered another state keeps its history untouched.
+	if command.Status != domain.CommandPending {
+		return domain.ReviewQueue{}, domain.Conflict("command_not_pending", "only pending commands can wait in the review queue")
+	}
+	if _, err := queue.Enqueue(
+		command.ID,
+		domain.DefaultPriority,
+		domain.InitialQueueBasis,
+		command.RequestedBy,
+		command.UpdatedAt,
+	); err != nil {
+		return domain.ReviewQueue{}, err
+	}
+	m.queues[command.GateID] = queue
+	return queue, nil
+}
+
+func (m *MemoryRepository) ReprioritizeCommand(
+	_ context.Context,
+	commandID string,
+	priority int,
+	basis string,
+	changedBy string,
+	now time.Time,
+) (domain.ReviewQueue, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	command, exists := m.commands[commandID]
+	if !exists {
+		return domain.ReviewQueue{}, domain.NotFound("command_not_found", "command id was not found")
+	}
+	queue, exists := m.queues[command.GateID]
+	if !exists {
+		return domain.ReviewQueue{}, domain.NotFound("gate_not_found", "gate id was not found")
+	}
+	// Adjustments cannot reach a command that has already left review,
+	// whether through rejection, approval, or execution.
+	if command.Status != domain.CommandPending {
+		return domain.ReviewQueue{}, domain.Conflict("command_not_pending", "only pending commands can be reprioritized")
+	}
+	if _, err := queue.Reprioritize(command.ID, priority, basis, changedBy, now); err != nil {
+		return domain.ReviewQueue{}, err
+	}
+	m.queues[command.GateID] = queue
+	return queue, nil
 }
 
 func (m *MemoryRepository) ReviewCommand(
@@ -97,6 +191,34 @@ func (m *MemoryRepository) ReviewCommand(
 	if !exists {
 		return domain.GateCommand{}, domain.Gate{}, domain.NotFound("gate_not_found", "gate id was not found")
 	}
+	queue, exists := m.queues[command.GateID]
+	if !exists {
+		return domain.GateCommand{}, domain.Gate{}, domain.NotFound("gate_not_found", "gate id was not found")
+	}
+
+	// Gate the review on the real pending precondition first, so commands
+	// already in another state always report the committed fact.
+	if command.Status != domain.CommandPending {
+		return domain.GateCommand{}, domain.Gate{}, domain.Conflict("command_not_pending", "only pending commands can be reviewed")
+	}
+
+	// Drop any entries whose commands left the pending state before we
+	// decide who the current head is.
+	queue.RetainPending(func(id string) bool {
+		candidate, ok := m.commands[id]
+		return ok && candidate.Status == domain.CommandPending
+	}, now)
+
+	// The head gate is evaluated before the decision is applied and before
+	// the gate is touched, so a non-head review always fails as a queue
+	// violation regardless of who reserved the gate concurrently.
+	head, hasHead := queue.Head()
+	if !hasHead || head.CommandID != commandID {
+		return domain.GateCommand{}, domain.Gate{}, domain.Conflict(
+			"command_not_queue_head",
+			"only the current head of the gate review queue can be reviewed",
+		)
+	}
 
 	nextCommand := cloneCommand(command)
 	if err := nextCommand.Review(decision, token, now); err != nil {
@@ -109,9 +231,17 @@ func (m *MemoryRepository) ReviewCommand(
 			return domain.GateCommand{}, domain.Gate{}, err
 		}
 	}
+	// Commit the review facts and release the head together. The next
+	// head is recomputed from the entries that remain genuinely pending.
+	queue.Remove(nextCommand.ID, now)
+	queue.RetainPending(func(id string) bool {
+		candidate, ok := m.commands[id]
+		return ok && candidate.Status == domain.CommandPending
+	}, now)
 
 	m.commands[nextCommand.ID] = nextCommand
 	m.gates[nextGate.ID] = nextGate
+	m.queues[nextGate.ID] = queue
 	return cloneCommand(nextCommand), nextGate, nil
 }
 
