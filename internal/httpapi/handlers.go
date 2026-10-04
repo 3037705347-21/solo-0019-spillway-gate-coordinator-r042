@@ -34,6 +34,15 @@ func (h *handler) gate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, contracts.GateResponse{Gate: gateView(gate)})
 }
 
+func (h *handler) reviewQueue(w http.ResponseWriter, r *http.Request) {
+	queue, err := h.service.ReviewQueue(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeDomainError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, contracts.ReviewQueueResponse{Queue: reviewQueueView(queue)})
+}
+
 func (h *handler) requestCommand(w http.ResponseWriter, r *http.Request) {
 	var request contracts.RequestCommandRequest
 	if err := decodeJSON(w, r, &request); err != nil {
@@ -63,6 +72,28 @@ func (h *handler) command(w http.ResponseWriter, r *http.Request) {
 		w,
 		http.StatusOK,
 		contracts.CommandResponse{Command: commandView(command, false)},
+	)
+}
+
+func (h *handler) reprioritizeCommand(w http.ResponseWriter, r *http.Request) {
+	var request contracts.ReprioritizeCommandRequest
+	if err := decodeJSON(w, r, &request); err != nil {
+		writeDomainError(w, err)
+		return
+	}
+
+	command, queue, err := h.service.ReprioritizeCommand(r.Context(), r.PathValue("id"), request)
+	if err != nil {
+		writeDomainError(w, err)
+		return
+	}
+	writeJSON(
+		w,
+		http.StatusOK,
+		contracts.ReprioritizeCommandResponse{
+			Command: commandView(command, false),
+			Queue:   reviewQueueView(queue),
+		},
 	)
 }
 

@@ -29,6 +29,8 @@ func (s *Service) RequestCommand(
 		gate.MaxAperture,
 		request.Reason,
 		request.RequestedBy,
+		request.Priority,
+		request.PriorityBasis,
 		s.now(),
 	)
 	if err != nil {
@@ -42,6 +44,24 @@ func (s *Service) RequestCommand(
 
 func (s *Service) Command(ctx context.Context, id string) (domain.GateCommand, error) {
 	return s.repository.Command(ctx, id)
+}
+
+func (s *Service) ReviewQueue(ctx context.Context, gateID string) (domain.ReviewQueue, error) {
+	return s.repository.ReviewQueue(ctx, gateID)
+}
+
+func (s *Service) ReprioritizeCommand(
+	ctx context.Context,
+	commandID string,
+	request contracts.ReprioritizeCommandRequest,
+) (domain.GateCommand, domain.ReviewQueue, error) {
+	return s.repository.ReprioritizeCommand(
+		ctx,
+		commandID,
+		request.Priority,
+		request.Basis,
+		s.now(),
+	)
 }
 
 func (s *Service) ReviewInterlock(

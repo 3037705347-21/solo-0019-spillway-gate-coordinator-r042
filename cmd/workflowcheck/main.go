@@ -30,6 +30,8 @@ func main() {
 		err = runRequestCommand(client)
 	case "review-safety-interlock":
 		err = runReviewSafetyInterlock(client)
+	case "review-queue-priority":
+		err = runReviewQueuePriority(client)
 	case "execute-gate-command":
 		err = runExecuteGateCommand(client)
 	default:

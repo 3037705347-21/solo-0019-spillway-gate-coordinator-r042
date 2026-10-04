@@ -16,6 +16,11 @@ const (
 	CommandAborted   CommandStatus = "aborted"
 )
 
+const (
+	MinCommandPriority int64 = -1000
+	MaxCommandPriority int64 = 1000
+)
+
 type GateCommand struct {
 	ID               string
 	GateID           string
@@ -24,6 +29,8 @@ type GateCommand struct {
 	Reason           string
 	RequestedBy      string
 	Status           CommandStatus
+	Priority         int64
+	PriorityBasis    string
 	Interlock        *InterlockDecision
 	ExecutionToken   string
 	ExecutedBy       string
@@ -41,6 +48,8 @@ func NewGateCommand(
 	maxAperture float64,
 	reason string,
 	requestedBy string,
+	priority int64,
+	priorityBasis string,
 	now time.Time,
 ) (GateCommand, error) {
 	commandID = strings.TrimSpace(commandID)
@@ -73,6 +82,10 @@ func NewGateCommand(
 		return GateCommand{}, Invalid("no_aperture_change", "target aperture must differ from the current aperture")
 	}
 
+	if err := validateCommandPriority(priority); err != nil {
+		return GateCommand{}, err
+	}
+
 	return GateCommand{
 		ID:               commandID,
 		GateID:           gateID,
@@ -81,10 +94,42 @@ func NewGateCommand(
 		Reason:           reason,
 		RequestedBy:      requestedBy,
 		Status:           CommandPending,
+		Priority:         priority,
+		PriorityBasis:    strings.TrimSpace(priorityBasis),
 		CreatedAt:        now.UTC(),
 		UpdatedAt:        now.UTC(),
 		Version:          1,
 	}, nil
+}
+
+func validateCommandPriority(priority int64) error {
+	if priority < MinCommandPriority || priority > MaxCommandPriority {
+		return Invalid("invalid_command_priority", "priority must be between -1000 and 1000")
+	}
+	return nil
+}
+
+// Reprioritize records a new business priority for a command that is still
+// waiting for review. Commands that already left the pending state keep
+// their recorded priority as a fact and cannot be rewritten.
+func (c *GateCommand) Reprioritize(priority int64, basis string, now time.Time) error {
+	if c.Status != CommandPending {
+		return Conflict("command_not_pending", "only pending commands can change priority")
+	}
+	if err := validateCommandPriority(priority); err != nil {
+		return err
+	}
+
+	basis = strings.TrimSpace(basis)
+	if basis == "" {
+		return Invalid("invalid_priority_basis", "priority basis is required when adjusting priority")
+	}
+
+	c.Priority = priority
+	c.PriorityBasis = basis
+	c.UpdatedAt = now.UTC()
+	c.Version++
+	return nil
 }
 
 func (c *GateCommand) Review(decision InterlockDecision, token string, now time.Time) error {

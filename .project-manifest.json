@@ -89,12 +89,36 @@
       "entry": "POST /commands/{id}/interlock",
       "steps": [
         "validate the review decision",
+        "require the command to be the current review queue head",
         "transition the command according to the verdict",
-        "reserve the gate and issue an execution token only for a clear decision"
+        "reserve the gate and issue an execution token only for a clear decision",
+        "dequeue the reviewed command so the next entry becomes the head"
       ],
       "success": "returns an approved command and one execution token",
-      "failure": "returns a stable conflict when another command already owns the gate",
+      "failure": "returns a stable conflict when another command already owns the gate or when the command is not the queue head",
       "verification": "workflowcheck clears one command and proves a second clear review cannot reserve the same gate",
+      "module_ids": [
+        "entrypoint",
+        "httpapi",
+        "coordination",
+        "domain",
+        "storage",
+        "contracts"
+      ]
+    },
+    {
+      "id": "review-queue-priority",
+      "name": "Review queue and priority",
+      "entry": "GET /gates/{id}/queue and POST /commands/{id}/priority",
+      "steps": [
+        "enqueue every new pending command into the per-gate review queue",
+        "derive the queue head from current priority and arrival order",
+        "adjust the priority of a still-pending command with a recorded basis",
+        "expose the ordered entries, priority basis, and current head"
+      ],
+      "success": "returns the ordered queue with its head and applies priority changes to queued commands",
+      "failure": "returns a stable conflict when adjusting a command that already left the pending state or when a review targets a non-head command",
+      "verification": "workflowcheck orders a three-command queue, reprioritizes entries, proves only the head can be reviewed, and proves concurrent reviews have a single winner",
       "module_ids": [
         "entrypoint",
         "httpapi",

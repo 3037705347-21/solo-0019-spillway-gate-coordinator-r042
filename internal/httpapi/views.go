@@ -33,6 +33,8 @@ func commandView(command domain.GateCommand, includeToken bool) contracts.Comman
 		Reason:           command.Reason,
 		RequestedBy:      command.RequestedBy,
 		Status:           string(command.Status),
+		Priority:         command.Priority,
+		PriorityBasis:    command.PriorityBasis,
 		ExecutedBy:       command.ExecutedBy,
 		TerminalReason:   command.TerminalReason,
 		CreatedAt:        formatTime(command.CreatedAt),
@@ -50,6 +52,30 @@ func commandView(command domain.GateCommand, includeToken bool) contracts.Comman
 			Note:       command.Interlock.Note,
 			ReviewedAt: formatTime(command.Interlock.ReviewedAt),
 		}
+	}
+	return view
+}
+
+func reviewQueueView(queue domain.ReviewQueue) contracts.ReviewQueueView {
+	ordered := queue.Ordered()
+	view := contracts.ReviewQueueView{
+		GateID:    queue.GateID,
+		Entries:   make([]contracts.ReviewQueueEntryView, 0, len(ordered)),
+		UpdatedAt: formatTime(queue.UpdatedAt),
+		Version:   queue.Version,
+	}
+	for index, entry := range ordered {
+		if index == 0 {
+			view.HeadCommandID = entry.CommandID
+		}
+		view.Entries = append(view.Entries, contracts.ReviewQueueEntryView{
+			CommandID:     entry.CommandID,
+			Priority:      entry.Priority,
+			PriorityBasis: entry.PriorityBasis,
+			QueuedAt:      formatTime(entry.QueuedAt),
+			Position:      index + 1,
+			IsHead:        index == 0,
+		})
 	}
 	return view
 }

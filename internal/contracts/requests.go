@@ -12,6 +12,13 @@ type RequestCommandRequest struct {
 	TargetAperture float64 `json:"target_aperture"`
 	Reason         string  `json:"reason"`
 	RequestedBy    string  `json:"requested_by"`
+	Priority       int64   `json:"priority"`
+	PriorityBasis  string  `json:"priority_basis"`
+}
+
+type ReprioritizeCommandRequest struct {
+	Priority int64  `json:"priority"`
+	Basis    string `json:"basis"`
 }
 
 type ReviewInterlockRequest struct {

@@ -16,8 +16,10 @@ go run ./cmd/server --addr 127.0.0.1:18119
 ```text
 POST /gates
 GET  /gates/{id}
+GET  /gates/{id}/queue
 POST /commands
 GET  /commands/{id}
+POST /commands/{id}/priority
 POST /commands/{id}/interlock
 POST /commands/{id}/execute
 ```
@@ -33,16 +35,52 @@ POST /commands/{id}/execute
 }
 ```
 
-提交命令示例：
+提交命令示例（`priority` 与 `priority_basis` 可省略，缺省优先级为 0）：
 
 ```json
 {
   "gate_id": "gate-east",
   "target_aperture": 2.25,
   "reason": "上游水位调整",
-  "requested_by": "dispatcher-lin"
+  "requested_by": "dispatcher-lin",
+  "priority": 0,
+  "priority_basis": "例行调度"
 }
 ```
+
+命令创建即进入该闸门的待复核队列。读取队列示例（`GET /gates/gate-east/queue`）：
+
+```json
+{
+  "queue": {
+    "gate_id": "gate-east",
+    "head_command_id": "cmd-xxx",
+    "entries": [
+      {
+        "command_id": "cmd-xxx",
+        "priority": 5,
+        "priority_basis": "上游洪峰临近",
+        "queued_at": "2026-10-04T00:00:00Z",
+        "position": 1,
+        "is_head": true
+      }
+    ],
+    "updated_at": "2026-10-04T00:00:00Z",
+    "version": 2
+  }
+}
+```
+
+调整优先级示例（仅 pending 命令可调整，必须说明依据；队首按当前优先级与到达次序动态确定）：
+
+```json
+{
+  "priority": 5,
+  "basis": "上游洪峰临近"
+}
+```
+
+只有队首命令可以提交联锁复核；复核完成后命令出队，下一项按当时真实条件成为队首。
 
 联锁复核示例：
 
@@ -67,7 +105,7 @@ POST /commands/{id}/execute
 ## 目录
 
 - `cmd/server`：服务进程。
-- `cmd/workflowcheck`：四条工作流的真实 HTTP 检查入口。
+- `cmd/workflowcheck`：五条工作流的真实 HTTP 检查入口。
 - `internal/bootstrap`：依赖装配。
 - `internal/contracts`：公开数据契约。
 - `internal/coordination`：业务工作流。
@@ -81,6 +119,7 @@ POST /commands/{id}/execute
 go run ./cmd/workflowcheck --workflow register-gate
 go run ./cmd/workflowcheck --workflow request-gate-command
 go run ./cmd/workflowcheck --workflow review-safety-interlock
+go run ./cmd/workflowcheck --workflow review-queue-priority
 go run ./cmd/workflowcheck --workflow execute-gate-command
 ```
 

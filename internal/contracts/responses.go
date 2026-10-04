@@ -31,6 +31,8 @@ type CommandView struct {
 	Reason           string                 `json:"reason"`
 	RequestedBy      string                 `json:"requested_by"`
 	Status           string                 `json:"status"`
+	Priority         int64                  `json:"priority"`
+	PriorityBasis    string                 `json:"priority_basis,omitempty"`
 	Interlock        *InterlockDecisionView `json:"interlock,omitempty"`
 	ExecutionToken   string                 `json:"execution_token,omitempty"`
 	ExecutedBy       string                 `json:"executed_by,omitempty"`
@@ -38,6 +40,23 @@ type CommandView struct {
 	CreatedAt        string                 `json:"created_at"`
 	UpdatedAt        string                 `json:"updated_at"`
 	Version          int64                  `json:"version"`
+}
+
+type ReviewQueueEntryView struct {
+	CommandID     string `json:"command_id"`
+	Priority      int64  `json:"priority"`
+	PriorityBasis string `json:"priority_basis,omitempty"`
+	QueuedAt      string `json:"queued_at"`
+	Position      int    `json:"position"`
+	IsHead        bool   `json:"is_head"`
+}
+
+type ReviewQueueView struct {
+	GateID        string                 `json:"gate_id"`
+	HeadCommandID string                 `json:"head_command_id,omitempty"`
+	Entries       []ReviewQueueEntryView `json:"entries"`
+	UpdatedAt     string                 `json:"updated_at"`
+	Version       int64                  `json:"version"`
 }
 
 type RegisterGateResponse struct {
@@ -55,6 +74,15 @@ type CommandResponse struct {
 type ReviewCommandResponse struct {
 	Command CommandView `json:"command"`
 	Gate    GateView    `json:"gate"`
+}
+
+type ReviewQueueResponse struct {
+	Queue ReviewQueueView `json:"queue"`
+}
+
+type ReprioritizeCommandResponse struct {
+	Command CommandView     `json:"command"`
+	Queue   ReviewQueueView `json:"queue"`
 }
 
 type ExecuteCommandResponse struct {

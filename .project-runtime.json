@@ -24,6 +24,10 @@
       "command": "go run ./cmd/workflowcheck --workflow review-safety-interlock"
     },
     {
+      "workflow_id": "review-queue-priority",
+      "command": "go run ./cmd/workflowcheck --workflow review-queue-priority"
+    },
+    {
       "workflow_id": "execute-gate-command",
       "command": "go run ./cmd/workflowcheck --workflow execute-gate-command"
     }
